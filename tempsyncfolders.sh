@@ -13,7 +13,7 @@ documentaryfilms="/media/gcrypt2/Documentary-Films/"
 nonfiction="/media/gcrypt2/Non-Fiction-Shows/"
 standupspecials="/media/gcrypt2/Standup-Specials/"
 comedianshows="/media/gcrypt2/Comedian-Shows/"
-tvshows="/media/gcrypt/TV Shows/"
+tvshows="/media/gcrypt2/TV Shows/"
 skip1="temp"
 skip2="Emby-backups"
 
