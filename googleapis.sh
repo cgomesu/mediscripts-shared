@@ -60,7 +60,7 @@ HOSTS_FILE="/etc/hosts"
 # uncomment to set a default criterion. this refers to the integer (in MiB/s) of the download
 # rate reported by rclone. lower or equal values are blacklisted, while higher values are whitelisted.
 # by default, script whitelists any connection that reaches any MiB/s speed above 0 (e.g., 1, 2, 3, ...).
-#SPEED_CRITERION='20'
+#SPEED_CRITERION=20
 DEFAULT_SPEED_CRITERION=0
 
 # takes a status ($1) as arg. used to indicate whether to restore hosts file from backup or not.
