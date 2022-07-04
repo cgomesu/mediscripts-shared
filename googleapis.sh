@@ -216,6 +216,16 @@ fastest_host () {
   echo "$MACS"
 }
 
+# takes an address as arg ($1)
+validate_ipv4 () {
+  # lack of match in grep should return an exit code other than 0
+  if echo "$1" | grep -oE "[[:digit:]]{1,3}.[[:digit:]]{1,3}.[[:digit:]]{1,3}.[[:digit:]]{1,3}" > /dev/null 2>&1; then
+    return 0
+  else
+    return 1
+  fi
+}
+
 ############
 # main logic
 start
@@ -247,16 +257,12 @@ blacklisted_ips
 
 # checking each ip in API_IPS
 while IFS= read -r line; do
-  # validate that line is an actual IPv4 address
-  if echo "$line" | grep -oE "[[:digit:]]{1,3}.[[:digit:]]{1,3}.[[:digit:]]{1,3}.[[:digit:]]{1,3}" > /dev/null 2>&1; then
-    ip_checker "$line" "$API"
-  fi
+  if validate_ipv4 "$line"; then ip_checker "$line" "$API"; fi
 done < "$API_IPS"
 
 # parse results and use the best endpoint
 BEST_IP=$(fastest_host)
-# a valid IPv4 must have at least 7 characters (e.g., 1.1.1.1)
-if [ ${#BEST_IP} -ge 7 ]; then
+if validate_ipv4 "$BEST_IP"; then
   msg "The fastest IP is $BEST_IP. Putting into the hosts file." 'INFO'
   echo "$BEST_IP $API" | tee -a "$HOSTS_FILE" > /dev/null 2>&1
 else
