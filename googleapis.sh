@@ -3,14 +3,33 @@
 ###################################################################################
 # Google Endpoint Scanner (GES)
 # - Use this script to blacklist GDrive endpoints that have slow connections
-# - This is done by adding the best GDrive server available at the time of testing
-#   to this hosts /etc/hosts file.
+# - This is done by adding one or more Google servers available at the time of
+#   testing to this host's /etc/hosts file.
 # - Run this script as a cronjob or any other way of automation that you feel
 #   comfortable with.
 ###################################################################################
+# Installation and usage:
+# - install 'dig' and 'git';
+# - in a dir of your choice, clone the repo that contains this script:
+#   'git clone https://github.com/cgomesu/mediscripts-shared.git'
+#   'cd mediscripts-shared/'
+# - go over the non-default variables at the top of the script (e.g., REMOTE,
+#   REMOTE_TEST_DIR, REMOTE_TEST_FILE, etc.) and edit them to your liking:
+#   'nano googleapis.sh'
+# - if you have not selected or created a dummy file to test the download
+#   speed from your remote, then do so now. a file between 50MB-100MB should
+#   be fine;
+# - manually run the script at least once to ensure it works. using the shebang:
+#   './googleapis.sh' (or 'sudo ./googleapis.sh' if not root)
+#   or by calling 'sh' (or bash or whatever POSIX shell) directly:
+#   'sh googleapis.sh' (or 'sudo sh googleapis.sh' if not root)
+###################################################################################
 # Noteworthy requirements:
-# - rclone
-# - dig
+# - rclone;
+# - dig: in apt-based distros, install it via 'apt install dnsutils';
+# - a dummy file on the remote: you can point to an existing file or create an
+#                              empty one via 'fallocate -l 50M dummyfile' and
+#                              then copying it to your remote.
 ###################################################################################
 # Author: @cgomesu (this version is a rework of the original script by @Nebarik)
 # Repo: https://github.com/cgomesu/mediscripts-shared
@@ -19,28 +38,20 @@
 ###################################################################################
 
 # uncomment and edit to set a custom name for the remote.
-#REMOTE="gcrypt-remote"
-DEFAULT_REMOTE="gcrypt2"
+#REMOTE=""
+DEFAULT_REMOTE="gcrypt"
 
 # uncomment and edit to set a custom path to a config file. Default uses
 # rclone's default ("$HOME/.config/rclone/rclone.conf").
-#CONFIG="/home/cgomes/.config/rclone/rclone.conf"
+#CONFIG=""
 
 # uncomment to set the full path to the REMOTE directory containing a test file.
-#REMOTE_TEST_DIR="/"
-DEFAULT_REMOTE_TEST_DIR="/temp/"
+#REMOTE_TEST_DIR=""
+DEFAULT_REMOTE_TEST_DIR="/tmp/"
 
 # uncomment to set the name of a REMOTE file to test download speed.
-#REMOTE_TEST_FILE="dummyfile"
-DEFAULT_REMOTE_TEST_FILE="dummythicc"
-
-TEST_FILE="${REMOTE:-$DEFAULT_REMOTE}:${REMOTE_TEST_DIR:-$DEFAULT_REMOTE_TEST_DIR}${REMOTE_TEST_FILE:-$DEFAULT_REMOTE_TEST_FILE}"
-
-# uncomment to set a custom API address.
-#CUSTOM_API=""
-DEFAULT_API="www.googleapis.com"
-
-API="${CUSTOM_API:-$DEFAULT_API}"
+#REMOTE_TEST_FILE=""
+DEFAULT_REMOTE_TEST_FILE="dummyfile"
 
 # Warning: be careful where you point the LOCAL_TMP dir because this script will
 # delete it automatically before exiting!
@@ -52,22 +63,49 @@ DEFAULT_LOCAL_TMP_ROOT="/tmp/"
 #TMP_DIR=""
 DEFAULT_LOCAL_TMP_DIR="ges/"
 
-LOCAL_TMP="${LOCAL_TMP_ROOT:-$DEFAULT_LOCAL_TMP_ROOT}${TMP_DIR:-$DEFAULT_LOCAL_TMP_DIR}"
+# uncomment to set a default criterion. this refers to the integer (in mebibyte/s, MiB/s) of the download
+# rate reported by rclone. lower or equal values are blacklisted, while higher values are whitelisted.
+# by default, script whitelists any connection that reaches any MiB/s speed above 0 (e.g., 1, 2, 3, ...).
+#SPEED_CRITERION=5
+DEFAULT_SPEED_CRITERION=0
+
+# uncomment to append to the hosts file ONLY THE BEST whitelisted endpoint IP to the API address (single host entry).
+# by default, the script appends ALL whitelisted IPs to the host file.
+#USE_ONLY_BEST_ENDPOINT="true"
+
+# uncomment to indicate the application to store blacklisted ips PERMANENTLY and use them to filter
+# future runs. by default, blacklisted ips are NOT permanently stored to allow the chance that a bad server
+# might become good in the future.
+#USE_PERMANENT_BLACKLIST="true"
+
+#PERMANENT_BLACKLIST_DIR=""
+DEFAULT_PERMANENT_BLACKLIST_DIR="$HOME/"
+#PERMANENT_BLACKLIST_FILE=""
+DEFAULT_PERMANENT_BLACKLIST_FILE="blacklisted_google_ips"
+
+# uncomment to set a custom API address.
+#CUSTOM_API=""
+DEFAULT_API="www.googleapis.com"
 
 # full path to hosts file.
 HOSTS_FILE="/etc/hosts"
 
-# uncomment to set a default criterion. this refers to the integer (in MiB/s) of the download
-# rate reported by rclone. lower or equal values are blacklisted, while higher values are whitelisted.
-# by default, script whitelists any connection that reaches any MiB/s speed above 0 (e.g., 1, 2, 3, ...).
-#SPEED_CRITERION=20
-DEFAULT_SPEED_CRITERION=0
+# do NOT edit these variables.
+TEST_FILE="${REMOTE:-$DEFAULT_REMOTE}:${REMOTE_TEST_DIR:-$DEFAULT_REMOTE_TEST_DIR}${REMOTE_TEST_FILE:-$DEFAULT_REMOTE_TEST_FILE}"
+API="${CUSTOM_API:-$DEFAULT_API}"
+LOCAL_TMP="${LOCAL_TMP_ROOT:-$DEFAULT_LOCAL_TMP_ROOT}${TMP_DIR:-$DEFAULT_LOCAL_TMP_DIR}"
+PERMANENT_BLACKLIST="${PERMANENT_BLACKLIST_DIR:-$DEFAULT_PERMANENT_BLACKLIST_DIR}${PERMANENT_BLACKLIST_FILE:-$DEFAULT_PERMANENT_BLACKLIST_FILE}"
+
 
 # takes a status ($1) as arg. used to indicate whether to restore hosts file from backup or not.
 cleanup () {
+  # restore hosts file from backup before exiting with error
   if [ "$1" -ne 0 ] && check_root && [ -f "$HOSTS_FILE_BACKUP" ]; then
-    # restore hosts file from backup before exiting with error
-    cp "$HOSTS_FILE_BACKUP" "$HOSTS_FILE"
+    cp "$HOSTS_FILE_BACKUP" "$HOSTS_FILE" > /dev/null 2>&1
+  fi
+  # append new blacklisted IPs to permanent list if using it and exiting wo error
+  if [ "$1" -eq 0 ] && [ "$USE_PERMANENT_BLACKLIST" = 'true' ] && [ -f "$BLACKLIST" ]; then
+    if [ -f "$PERMANENT_BLACKLIST" ]; then tee -a "$PERMANENT_BLACKLIST" < "$BLACKLIST" > /dev/null 2>&1; fi
   fi
   # remove local tmp dir and its files if the dir exists
   if [ -d "$LOCAL_TMP" ]; then
@@ -107,6 +145,9 @@ create_local_tmp () {
   LOCAL_TMP_SPEEDRESULTS_DIR="$LOCAL_TMP""speedresults/"
   LOCAL_TMP_TESTFILE_DIR="$LOCAL_TMP""testfile/"
   mkdir -p "$LOCAL_TMP_SPEEDRESULTS_DIR" "$LOCAL_TMP_TESTFILE_DIR" > /dev/null 2>&1
+  BLACKLIST="$LOCAL_TMP"'blacklist_api_ips'
+  API_IPS="$LOCAL_TMP"'api_ips'
+  touch "$BLACKLIST" "$API_IPS"
 }
 
 # hosts file backup
@@ -132,17 +173,24 @@ check_command () {
   if command -v "$1" > /dev/null 2>&1; then return 0; else return 1; fi
 }
 
-# blacklist IPs
+# add/parse bad IPs to/from a permanent blacklist
 blacklisted_ips () {
   API_IPS_PROGRESS="$LOCAL_TMP"'api-ips-progress'
-  BLACKLIST="$LOCAL_TMP"'blacklist_apis'
-  API_IPS="$LOCAL_TMP"'api_ips'
   mv "$API_IPS_FRESH" "$API_IPS_PROGRESS"
-  touch "$BLACKLIST"
-  while IFS= read -r bip; do
-    grep -v "$bip" "$API_IPS_PROGRESS" > "$API_IPS" 2>/dev/null
-    mv "$API_IPS" "$API_IPS_PROGRESS"
-  done < "$BLACKLIST"
+  if [ -f "$PERMANENT_BLACKLIST" ]; then
+    msg "Found permanent blacklist. Parsing it." 'INFO'
+    while IFS= read -r line; do
+      if validate_ipv4 "$line"; then
+        # grep with inverted match
+        grep -v "$line" "$API_IPS_PROGRESS" > "$API_IPS" 2>/dev/null
+        mv "$API_IPS" "$API_IPS_PROGRESS"
+      fi
+    done < "$PERMANENT_BLACKLIST"
+  else
+    msg "Did not find a permanent blacklist at $PERMANENT_BLACKLIST. Creating a new one." 'WARNING'
+    mkdir -p "$PERMANENT_BLACKLIST_DIR" 2>/dev/null
+    touch "$PERMANENT_BLACKLIST" 2>/dev/null
+  fi
   mv "$API_IPS_PROGRESS" "$API_IPS"
 }
 
@@ -153,7 +201,6 @@ ip_checker () {
   NAME="$2"
   HOST="$IP $NAME"
   RCLONE_LOG="$LOCAL_TMP"'rclone.log'
-  BLACKLIST="$LOCAL_TMP"'blacklist_apis'
 
   echo "$HOST" | tee -a "$HOSTS_FILE" > /dev/null 2>&1
   msg "Please wait. Downloading the test file from $IP... " 'INFO'
@@ -167,7 +214,7 @@ ip_checker () {
     fi
   else
     msg "Rclone is not installed or is not reachable in this user's \$PATH." 'ERROR'
-    end 'Cannot conitnue. Fix Rclone issue and try again.' 1
+    end 'Cannot continue. Fix the rclone issue and try again.' 1
   fi
 
   # parse log file
@@ -212,7 +259,8 @@ fastest_host () {
   LOCAL_TMP_SPEEDRESULTS_COUNT="$LOCAL_TMP"'speedresults_count'
   ls "$LOCAL_TMP_SPEEDRESULTS_DIR" > "$LOCAL_TMP_SPEEDRESULTS_COUNT"
   MAX=$(sort -nr "$LOCAL_TMP_SPEEDRESULTS_COUNT" | head -1)
-  MACS=$(cat "$LOCAL_TMP_SPEEDRESULTS_DIR$MAX" 2> /dev/null)
+  # same speed file can contain multiple IPs, so get whatever is at the top
+  MACS=$(head -1 "$LOCAL_TMP_SPEEDRESULTS_DIR$MAX" 2>/dev/null)
   echo "$MACS"
 }
 
@@ -224,6 +272,39 @@ validate_ipv4 () {
   else
     return 1
   fi
+}
+
+# parse results and append only the best whitelisted IP to hosts
+append_best_whitelisted_ip () {
+  BEST_IP=$(fastest_host)
+  if validate_ipv4 "$BEST_IP"; then
+    msg "The fastest IP is $BEST_IP. Putting into the hosts file." 'INFO'
+    echo "$BEST_IP $API" | tee -a "$HOSTS_FILE" > /dev/null 2>&1
+  else
+    msg "The selected '$BEST_IP' address is not a valid IP number." 'ERROR'
+    end "Unable to find the best IP address. Original hosts file will be restored." 1
+  fi
+}
+
+# parse results and append all whitelisted IPs to hosts
+append_all_whitelisted_ips () {
+  for file in "$LOCAL_TMP_SPEEDRESULTS_DIR"*; do
+    if [ -f "$file" ]; then
+      # same speed file can contain multiple IPs
+      while IFS= read -r line; do
+        WHITELISTED_IP="$line"
+        if validate_ipv4 "$WHITELISTED_IP"; then
+          msg "The whitelisted IP '$WHITELISTED_IP' will be added to the hosts file." 'INFO'
+          echo "$WHITELISTED_IP $API" | tee -a "$HOSTS_FILE" > /dev/null 2>&1
+        else
+          msg "The whitelisted IP '$WHITELISTED_IP' address is not a valid IP number. Skipping it." 'WARNING'
+        fi
+      done < "$file"
+    else
+      msg "Did not find any whitelisted IP at '$LOCAL_TMP_SPEEDRESULTS_DIR'." 'ERROR'
+      end "Unable to find whitelisted IP addresses. Original hosts file will be restored." 1
+    fi
+  done
 }
 
 ############
@@ -252,22 +333,24 @@ else
   end "Install dig or make sure its executable is reachable, then try again." 1
 fi
 
-# backlist known bad IPs
-blacklisted_ips
+if [ "$USE_PERMANENT_BLACKLIST" = 'true' ]; then
+  # bad IPs are permanently blacklisted
+  blacklisted_ips
+else
+  # bad IPs are blacklisted on a per-run basis
+  mv "$API_IPS_FRESH" "$API_IPS"
+fi
 
-# checking each ip in API_IPS
 while IFS= read -r line; do
+  # checking each ip in API_IPS
   if validate_ipv4 "$line"; then ip_checker "$line" "$API"; fi
 done < "$API_IPS"
 
-# parse results and use the best endpoint
-BEST_IP=$(fastest_host)
-if validate_ipv4 "$BEST_IP"; then
-  msg "The fastest IP is $BEST_IP. Putting into the hosts file." 'INFO'
-  echo "$BEST_IP $API" | tee -a "$HOSTS_FILE" > /dev/null 2>&1
+# parse whitelisted IPs and edit hosts file accordingly
+if [ "$USE_ONLY_BEST_ENDPOINT" = 'true' ]; then
+  append_best_whitelisted_ip
 else
-  msg "The selected '$BEST_IP' address is not a valid IP number." 'ERROR'
-  end "Unable to find the best IP address. Original hosts file will be restored." 1
+  append_all_whitelisted_ips
 fi
 
 # end the script wo errors
