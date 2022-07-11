@@ -83,6 +83,11 @@ DEFAULT_PERMANENT_BLACKLIST_DIR="$HOME/"
 #PERMANENT_BLACKLIST_FILE=""
 DEFAULT_PERMANENT_BLACKLIST_FILE="blacklisted_google_ips"
 
+# uncomment this option if you only want the script to edit the hosts file when the current host is unable
+# to meet the speed criterion. this is useful to prevent the script from trying all possible IPs when the current
+# one is still a valid (fast) server.
+#USE_PRECHECK='true'
+
 # uncomment to set a custom API address.
 #CUSTOM_API=""
 DEFAULT_API="www.googleapis.com"
@@ -148,6 +153,7 @@ create_local_tmp () {
   BLACKLIST="$LOCAL_TMP"'blacklist_api_ips'
   API_IPS="$LOCAL_TMP"'api_ips'
   touch "$BLACKLIST" "$API_IPS"
+  RCLONE_LOG="$LOCAL_TMP"'rclone.log'
 }
 
 # hosts file backup
@@ -194,18 +200,9 @@ blacklisted_ips () {
   mv "$API_IPS_PROGRESS" "$API_IPS"
 }
 
-# ip checker that tests Google endpoints for download speed.
-# takes an IP addr ($1) and its name ($2) as args.
-ip_checker () {
-  IP="$1"
-  NAME="$2"
-  HOST="$IP $NAME"
-  RCLONE_LOG="$LOCAL_TMP"'rclone.log'
-
-  echo "$HOST" | tee -a "$HOSTS_FILE" > /dev/null 2>&1
-  msg "Please wait. Downloading the test file from $IP... " 'INFO'
-
-  # rclone download command
+# copy file from remote to local and saves a log file of the operation
+# returns error if unable to use rclone
+rclone_copy () {
   if check_command "rclone"; then
     if [ -n "$CONFIG" ]; then
       rclone copy --config "$CONFIG" --log-file "$RCLONE_LOG" -v "${TEST_FILE}" "$LOCAL_TMP_TESTFILE_DIR"
@@ -214,13 +211,17 @@ ip_checker () {
     fi
   else
     msg "Rclone is not installed or is not reachable in this user's \$PATH." 'ERROR'
-    end 'Cannot continue. Fix the rclone issue and try again.' 1
+    return 1
   fi
+  return 0
+}
 
-  # parse log file
+# parse rclone's log file for speed and update local files accordingly
+rclone_parse_log () {
   if [ -f "$RCLONE_LOG" ]; then
     if grep -qi "failed" "$RCLONE_LOG"; then
       msg "Unable to connect with $IP." 'WARNING'
+      return 1
     else
       msg "Parsing connection with $IP." 'INFO'
       # only whitelist MiB/s connections
@@ -232,26 +233,71 @@ ip_checker () {
           # good endpoint
           msg "$SPEED MiB/s. Above criterion endpoint. Whitelisting IP '$IP'." 'INFO'
           echo "$IP" | tee -a "$LOCAL_TMP_SPEEDRESULTS_DIR$SPEED" > /dev/null
+          return 0
         else
           # below criterion endpoint
           msg "$SPEED MiB/s. Below criterion endpoint. Blacklisting IP '$IP'." 'INFO'
           echo "$IP" | tee -a "$BLACKLIST" > /dev/null
+          return 1
         fi
       elif grep -qi "KiB/s" "$RCLONE_LOG"; then
         SPEED=$(grep "KiB/s" "$RCLONE_LOG" | cut -d, -f3 | cut -c 2- | cut -c -5 | tail -1)
         msg "$SPEED KiB/s. Abnormal endpoint. Blacklisting IP '$IP'." 'WARNING'
         echo "$IP" | tee -a "$BLACKLIST" > /dev/null
+        return 1
       else
         # assuming it's either KiB/s or MiB/s, else parses as error and do nothing
         msg "Could not parse connection with IP '$IP'." 'WARNING'
+        return 1
       fi
     fi
-    # local cleanup of tmp file and log
-    rm "$LOCAL_TMP_TESTFILE_DIR${REMOTE_TEST_FILE:-$DEFAULT_REMOTE_TEST_FILE}" > /dev/null 2>&1
-    rm "$RCLONE_LOG" > /dev/null 2>&1
+  else
+    msg "Unable to find rclone's log file at '$RCLONE_LOG'." 'WARNING'
+    return 1
   fi
+}
+
+# ip checker that tests Google endpoints for download speed.
+# takes an IP addr ($1) and its name ($2) as args.
+ip_checker () {
+  IP="$1"
+  NAME="$2"
+  HOST="$IP $NAME"
+
+  echo "$HOST" | tee -a "$HOSTS_FILE" > /dev/null 2>&1
+  msg "Please wait. Downloading the test file from $IP... " 'INFO'
+
+  # rclone download command
+  if ! rclone_copy; then end 'Cannot continue. Fix the rclone issue and try again.' 1; fi
+
+  # parse log file and ignore return status
+  rclone_parse_log
+
+  # local cleanup of tmp file and log
+  rm "$LOCAL_TMP_TESTFILE_DIR${REMOTE_TEST_FILE:-$DEFAULT_REMOTE_TEST_FILE}" > /dev/null 2>&1
+  rm "$RCLONE_LOG" > /dev/null 2>&1
   # restore hosts file from backup
   cp "$HOSTS_FILE_BACKUP" "$HOSTS_FILE" > /dev/null 2>&1
+}
+
+# precheck procedure
+precheck () {
+  if grep "$API" "$HOSTS_FILE" > /dev/null 2>&1; then
+    # process host and test it
+    IP=$(grep "$API" "$HOSTS_FILE" | cut -f 1 -d ' ' | head -1)
+    msg "Please wait. Pre-checking download from '$IP'... " 'INFO'
+    if ! rclone_copy; then end 'Cannot continue. Fix the rclone issue and try again.' 1; fi
+    if rclone_parse_log; then
+      msg "Precheck passed. Current host is still valid." 'INFO'
+      return 0
+    else
+      msg "Precheck failed. Current host is no longer valid." 'WARNING'
+      return 1
+    fi
+  else
+    msg "Unable to find '$API' in the current hosts file. Skipping precheck." 'WARNING'
+    return 1
+  fi
 }
 
 # returns the fastest IP from speedresults
@@ -318,6 +364,12 @@ if ! check_root; then end "User is not root but this script needs root permissio
 
 # prepare local files
 create_local_tmp
+
+if [ "$USE_PRECHECK" = 'true' ]; then
+  if precheck; then end 'Skipping the more comprehensive endpoint scans because the current host is valid.' 0; fi
+fi
+
+# backup hosts file
 if ! hosts_backup; then end "Unable to backup the hosts file. Check its path and continue." 1; fi
 
 # prepare remote file
