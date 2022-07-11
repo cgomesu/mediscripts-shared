@@ -39,7 +39,6 @@
 
 # uncomment and edit to set a custom name for the remote.
 #REMOTE=""
-DEFAULT_REMOTE="gcrypt"
 
 # uncomment and edit to set a custom path to a config file. Default uses
 # rclone's default ("$HOME/.config/rclone/rclone.conf").
@@ -47,27 +46,22 @@ DEFAULT_REMOTE="gcrypt"
 
 # uncomment to set the full path to the REMOTE directory containing a test file.
 #REMOTE_TEST_DIR=""
-DEFAULT_REMOTE_TEST_DIR="/tmp/"
 
 # uncomment to set the name of a REMOTE file to test download speed.
 #REMOTE_TEST_FILE=""
-DEFAULT_REMOTE_TEST_FILE="dummyfile"
 
 # Warning: be careful where you point the LOCAL_TMP dir because this script will
 # delete it automatically before exiting!
 # uncomment to set the LOCAL temporary root directory.
 #LOCAL_TMP_ROOT=""
-DEFAULT_LOCAL_TMP_ROOT="/tmp/"
 
 # uncomment to set the LOCAL temporary application directory.
 #TMP_DIR=""
-DEFAULT_LOCAL_TMP_DIR="ges/"
 
 # uncomment to set a default criterion. this refers to the integer (in mebibyte/s, MiB/s) of the download
 # rate reported by rclone. lower or equal values are blacklisted, while higher values are whitelisted.
 # by default, script whitelists any connection that reaches any MiB/s speed above 0 (e.g., 1, 2, 3, ...).
 #SPEED_CRITERION=5
-DEFAULT_SPEED_CRITERION=0
 
 # uncomment to append to the hosts file ONLY THE BEST whitelisted endpoint IP to the API address (single host entry).
 # by default, the script appends ALL whitelisted IPs to the host file.
@@ -78,10 +72,9 @@ DEFAULT_SPEED_CRITERION=0
 # might become good in the future.
 #USE_PERMANENT_BLACKLIST="true"
 
+# uncomment and edit if using a permanent blacklist
 #PERMANENT_BLACKLIST_DIR=""
-DEFAULT_PERMANENT_BLACKLIST_DIR="$HOME/"
 #PERMANENT_BLACKLIST_FILE=""
-DEFAULT_PERMANENT_BLACKLIST_FILE="blacklisted_google_ips"
 
 # uncomment this option if you only want the script to edit the hosts file when the current host is unable
 # to meet the speed criterion. this is useful to prevent the script from trying all possible IPs when the current
@@ -90,12 +83,20 @@ DEFAULT_PERMANENT_BLACKLIST_FILE="blacklisted_google_ips"
 
 # uncomment to set a custom API address.
 #CUSTOM_API=""
-DEFAULT_API="www.googleapis.com"
 
 # full path to hosts file.
 HOSTS_FILE="/etc/hosts"
 
 # do NOT edit these variables.
+DEFAULT_REMOTE="gcrypt"
+DEFAULT_REMOTE_TEST_DIR="/tmp/"
+DEFAULT_REMOTE_TEST_FILE="dummyfile"
+DEFAULT_LOCAL_TMP_ROOT="/tmp/"
+DEFAULT_LOCAL_TMP_DIR="ges/"
+DEFAULT_SPEED_CRITERION=0
+DEFAULT_PERMANENT_BLACKLIST_DIR="$HOME/"
+DEFAULT_PERMANENT_BLACKLIST_FILE="blacklisted_google_ips"
+DEFAULT_API="www.googleapis.com"
 TEST_FILE="${REMOTE:-$DEFAULT_REMOTE}:${REMOTE_TEST_DIR:-$DEFAULT_REMOTE_TEST_DIR}${REMOTE_TEST_FILE:-$DEFAULT_REMOTE_TEST_FILE}"
 API="${CUSTOM_API:-$DEFAULT_API}"
 LOCAL_TMP="${LOCAL_TMP_ROOT:-$DEFAULT_LOCAL_TMP_ROOT}${TMP_DIR:-$DEFAULT_LOCAL_TMP_DIR}"
