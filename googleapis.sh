@@ -38,17 +38,17 @@
 ###################################################################################
 
 # uncomment and edit to set a custom name for the remote.
-# REMOTE=""
+#REMOTE=""
 
 # uncomment and edit to set a custom path to a config file. Default uses
 # rclone's default ("$HOME/.config/rclone/rclone.conf").
-# CONFIG=""
+#CONFIG=""
 
 # uncomment to set the full path to the REMOTE directory containing a test file.
-# REMOTE_TEST_DIR=""
+#REMOTE_TEST_DIR=""
 
 # uncomment to set the name of a REMOTE file to test download speed.
-# REMOTE_TEST_FILE=""
+#REMOTE_TEST_FILE=""
 
 # Warning: be careful where you point the LOCAL_TMP dir because this script will
 # delete it automatically before exiting!
