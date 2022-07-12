@@ -38,17 +38,17 @@
 ###################################################################################
 
 # uncomment and edit to set a custom name for the remote.
-#REMOTE=""
+# REMOTE=""
 
 # uncomment and edit to set a custom path to a config file. Default uses
 # rclone's default ("$HOME/.config/rclone/rclone.conf").
-#CONFIG=""
+# CONFIG=""
 
 # uncomment to set the full path to the REMOTE directory containing a test file.
-#REMOTE_TEST_DIR=""
+# REMOTE_TEST_DIR=""
 
 # uncomment to set the name of a REMOTE file to test download speed.
-#REMOTE_TEST_FILE=""
+# REMOTE_TEST_FILE=""
 
 # Warning: be careful where you point the LOCAL_TMP dir because this script will
 # delete it automatically before exiting!
@@ -225,30 +225,39 @@ rclone_parse_log () {
       return 1
     else
       msg "Parsing connection with $IP." 'INFO'
-      # only whitelist MiB/s connections
-      if grep -qi "MiB/s" "$RCLONE_LOG"; then
-        SPEED=$(grep "MiB/s" "$RCLONE_LOG" | cut -d, -f3 | cut -c 2- | cut -c -5 | tail -1)
-        # use speed criterion to decide whether to whilelist or not
-        SPEED_INT="$(echo "$SPEED" | cut -f 1 -d '.')"
-        if [ "$SPEED_INT" -gt "${SPEED_CRITERION:-$DEFAULT_SPEED_CRITERION}" ]; then
-          # good endpoint
-          msg "$SPEED MiB/s. Above criterion endpoint. Whitelisting IP '$IP'." 'INFO'
-          echo "$IP" | tee -a "$LOCAL_TMP_SPEEDRESULTS_DIR$SPEED" > /dev/null
-          return 0
-        else
-          # below criterion endpoint
-          msg "$SPEED MiB/s. Below criterion endpoint. Blacklisting IP '$IP'." 'INFO'
+      SPEED_REGEX="[[:digit:]]+[[:punct:]]+[[:digit:]]+[[:space:]][[:alpha:]]*\/s"
+      if grep -oE "$SPEED_REGEX" < "$RCLONE_LOG" > /dev/null 2>&1; then
+        # found a valid speed transfer metric in the log
+        SPEED=$(grep -oE "$SPEED_REGEX" < "$RCLONE_LOG")
+        SPEED_METRIC=$(echo "$SPEED" | cut -f 2 -d ' ')
+        SPEED_REAL=$(echo "$SPEED" | cut -f 1 -d ' ')
+        # assume decimals separated by a dot
+        SPEED_INT=$(echo "$SPEED" | cut -f 1 -d '.')
+        # only whitelist M/Mi B/Bytes per second connections
+        if [ "$SPEED_METRIC" = 'MiB/s' ] || [ "$SPEED_METRIC" = 'MiBytes/s' ] || [ "$SPEED_METRIC" = 'MB/s' ] || [ "$SPEED_METRIC" = 'MBytes/s' ]; then
+          # use speed criterion to decide whether to whilelist or not
+          if [ "$SPEED_INT" -gt "${SPEED_CRITERION:-$DEFAULT_SPEED_CRITERION}" ]; then
+            # good endpoint
+            msg "$SPEED. Above criterion endpoint. Whitelisting IP '$IP'." 'INFO'
+            echo "$IP" | tee -a "$LOCAL_TMP_SPEEDRESULTS_DIR$SPEED_REAL" > /dev/null
+            return 0
+          else
+            # below criterion endpoint
+            msg "$SPEED. Below criterion endpoint. Blacklisting IP '$IP'." 'INFO'
+            echo "$IP" | tee -a "$BLACKLIST" > /dev/null
+            return 1
+          fi
+        elif [ "$SPEED_METRIC" = 'KiB/s' ] || [ "$SPEED_METRIC" = 'KiBytes/s' ] || [ "$SPEED_METRIC" = 'KB/s' ] || [ "$SPEED_METRIC" = 'KiBytes/s' ]; then
+          msg "$SPEED. Abnormal endpoint. Blacklisting IP '$IP'." 'WARNING'
           echo "$IP" | tee -a "$BLACKLIST" > /dev/null
           return 1
+        else
+          # assuming it's either K/Kibi or M/Mi; else, parses as error and do nothing
+          msg "Could not parse the transfer speed metric '$SPEED_METRIC'. Skipping IP '$IP'." 'WARNING'
+          return 1
         fi
-      elif grep -qi "KiB/s" "$RCLONE_LOG"; then
-        SPEED=$(grep "KiB/s" "$RCLONE_LOG" | cut -d, -f3 | cut -c 2- | cut -c -5 | tail -1)
-        msg "$SPEED KiB/s. Abnormal endpoint. Blacklisting IP '$IP'." 'WARNING'
-        echo "$IP" | tee -a "$BLACKLIST" > /dev/null
-        return 1
       else
-        # assuming it's either KiB/s or MiB/s, else parses as error and do nothing
-        msg "Could not parse connection with IP '$IP'." 'WARNING'
+        msg "Could not parse the IP '$IP'. Skipping it." 'WARNING'
         return 1
       fi
     fi
